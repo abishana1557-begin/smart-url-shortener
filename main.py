@@ -66,3 +66,46 @@ def shorten_url(request: URLRequest):
         "short_code": short_token,
         "short_url": f"http://127.0.0{short_token}"
     }
+from fastapi.responses import RedirectResponse
+
+# =====================================================================
+# THE REDIRECTION & REAL-TIME ANALYTICS ROUTER (HTTP GET)
+# This path parameter listener intercepts ANY trailing short code token
+# typed into the home domain and routes the browser dynamically.
+# =====================================================================
+@app.get("/{short_code}")
+def redirect_to_target(short_code: str):
+    # 1. Establish an active gateway channel to the binary storage vault
+    conn = sqlite3.connect("url_storage.db")
+    cursor = conn.cursor()
+    
+    # 2. Database Lookup Transaction
+    # Search the ledger row matching the incoming short_code token
+    cursor.execute("SELECT long_url, clicks FROM urls WHERE short_code = ?", (short_code,))
+    row = cursor.fetchone()
+    
+    if not row:
+        conn.close()
+        # Defensive Error Handling: Guard against invalid or dead link inputs
+        raise HTTPException(status_code=404, detail="Short URL not found or has expired")
+        
+    original_long_url = row[0]
+    
+    # 3. ANALYTICS ENGINE LAYER
+    # Update the data row state, incrementing total traffic metrics atomically
+    try:
+        cursor.execute(
+            "UPDATE urls SET clicks = clicks + 1 WHERE short_code = ?", 
+            (short_code,)
+        )
+        conn.commit()
+    except Exception as e:
+        # Graceful failure handling: close the stream if the update loops drop
+        conn.close()
+        raise HTTPException(status_code=500, detail=f"Analytics logging error: {str(e)}")
+        
+    conn.close()
+    
+    # 4. EXECUTING PROTOCOL ROUTING (HTTP 302 REDIRECT)
+    # Commands the external browser engine to change its target address destination
+    return RedirectResponse(url=original_long_url, status_code=302)
