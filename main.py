@@ -1,6 +1,7 @@
 import sqlite3
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from security import check_url_safety
 
 # 1. IMPORT YOUR CUSTOM GEARS
 # We import the conversion function from encoder.py and the database setup from database.py
@@ -28,6 +29,14 @@ def read_root():
 # This is the pipeline where your database vault and math brain shake hands.
 @app.post("/shorten")
 def shorten_url(request: URLRequest):
+        # RUN SECURITY CHECKPOINT BEFORE STORING ANYTHING IN THE VAULT
+    is_safe = check_url_safety(request.long_url)
+    if not is_safe:
+        raise HTTPException(
+            status_code=400, 
+            detail="Security Risk Alert: This URL has been flagged as malicious by Google Safe Browsing."
+        )
+
     # Connect directly to our local relational database ledger file
     conn = sqlite3.connect("url_storage.db")
     cursor = conn.cursor()
