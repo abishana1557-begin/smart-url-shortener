@@ -2,6 +2,7 @@ import sqlite3
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from security import check_url_safety
+from ai_preview import generate_url_summary
 
 # 1. IMPORT YOUR CUSTOM GEARS
 # We import the conversion function from encoder.py and the database setup from database.py
@@ -73,7 +74,7 @@ def shorten_url(request: URLRequest):
     return {
         "original_url": request.long_url,
         "short_code": short_token,
-        "short_url": f"http://127.0.0{short_token}"
+        "short_url": f"http://127.0.0.1:8000/{short_token}"
     }
 from fastapi.responses import RedirectResponse
 
@@ -118,3 +119,30 @@ def redirect_to_target(short_code: str):
     # 4. EXECUTING PROTOCOL ROUTING (HTTP 302 REDIRECT)
     # Commands the external browser engine to change its target address destination
     return RedirectResponse(url=original_long_url, status_code=302)
+# =====================================================================
+# THE AI PREVIEW GENERATOR ROUTE (HTTP GET)
+# This path queries the target long URL, scrapes its core metadata text,
+# and returns a clean 1-sentence AI summary block back to the user.
+# =====================================================================
+@app.get("/preview/{short_code}")
+def get_link_preview(short_code: str):
+    conn = sqlite3.connect("url_storage.db")
+    cursor = conn.cursor()
+    
+    # Check the database for the matching short link code
+    cursor.execute("SELECT long_url FROM urls WHERE short_code = ?", (short_code,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Short URL token not found")
+        
+    target_long_url = row[0]
+    
+    # Trigger our newly connected AI Scraper Engine to compile the summary!
+    ai_summary_text = generate_url_summary(target_long_url)
+    
+    return {
+        "short_code": short_code,
+        "ai_preview_summary": ai_summary_text
+    }
